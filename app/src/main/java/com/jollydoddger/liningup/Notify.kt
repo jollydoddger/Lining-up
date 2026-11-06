@@ -67,12 +67,12 @@ object Notify {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(discreet(context, channel))
 
-    private fun answer(context: Context, request: Int, ok: Boolean, what: Choice?): PendingIntent =
+    private fun answer(context: Context, request: Int, ok: Boolean, what: Set<Choice>): PendingIntent =
         PendingIntent.getBroadcast(
             context, request,
             Intent(context, AnswerReceiver::class.java)
                 .putExtra(AnswerReceiver.EXTRA_OK, ok)
-                .putExtra(AnswerReceiver.EXTRA_WHAT, what?.name),
+                .putExtra(AnswerReceiver.EXTRA_WHAT, Choice.wire(what)),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
@@ -82,20 +82,21 @@ object Notify {
         val n = base(context, CH_PROMPT, "🌙")
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .addAction(0, "✅", answer(context, 10, true, null))
-            .addAction(0, "❌", answer(context, 11, false, null))
+            .addAction(0, "✅", answer(context, 10, true, emptySet()))
+            .addAction(0, "❌", answer(context, 11, false, emptySet()))
             .build()
         NotificationManagerCompat.from(context).notify(ID_PROMPT, n)
     }
 
-    /** After ✅ on the popup: 🍆 or 👅, in place of the first question. */
+    /** After ✅ on the popup: 👅, 🍆 or both, in place of the first question. */
     fun followUp(context: Context) {
         if (!allowed(context)) return
         val n = base(context, CH_PROMPT, "✅")
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .addAction(0, Choice.EGGPLANT.emoji, answer(context, 12, true, Choice.EGGPLANT))
-            .addAction(0, Choice.TONGUE.emoji, answer(context, 13, true, Choice.TONGUE))
+            .addAction(0, Choice.TONGUE.emoji, answer(context, 12, true, setOf(Choice.TONGUE)))
+            .addAction(0, Choice.EGGPLANT.emoji, answer(context, 13, true, setOf(Choice.EGGPLANT)))
+            .addAction(0, Choice.TONGUE.emoji + Choice.EGGPLANT.emoji, answer(context, 14, true, Choice.entries.toSet()))
             .build()
         NotificationManagerCompat.from(context).notify(ID_PROMPT, n)
     }
@@ -104,8 +105,10 @@ object Notify {
 
     fun partner(context: Context, s: Status) {
         if (!allowed(context)) return
-        val n = base(context, CH_PARTNER, "${s.avatar} ${s.emojis}")
-            .setContentText(Days.clock(s.at))
+        // A note is flagged, never quoted: it is read by tapping, in the app.
+        val title = listOf(s.avatar, s.emojis, if (s.note.isNotBlank()) "📝" else "").filter { it.isNotBlank() }
+        val n = base(context, CH_PARTNER, title.joinToString(" "))
+            .apply { if (s.ok != null) setContentText(Days.clock(s.at)) }
             .build()
         NotificationManagerCompat.from(context).notify(ID_PARTNER, n)
     }
@@ -122,9 +125,9 @@ class AnswerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Store.init(context)
         val ok = intent.getBooleanExtra(EXTRA_OK, false)
-        val what = Choice.of(intent.getStringExtra(EXTRA_WHAT))
+        val what = Choice.setOf(intent.getStringExtra(EXTRA_WHAT))
         Store.answer(ok, what)
-        if (ok && what == null) Notify.followUp(context) else Notify.clearPrompt(context)
+        if (ok && what.isEmpty()) Notify.followUp(context) else Notify.clearPrompt(context)
         Sync.soon(context)
     }
 

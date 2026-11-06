@@ -84,7 +84,7 @@ object Sync {
                 val all = Relay.read(couple.topic).mapNotNull { couple.open(it) }.mapNotNull { Status.parse(it) }
                 val theirs = Statuses.partner(all, Store.me, day)
                 Store.heard(theirs, now)
-                if (theirs != null && Store.firstSight(theirs) && !Store.foreground && theirs.ok != null) {
+                if (theirs != null && Store.firstSight(theirs) && !Store.foreground && theirs.shown) {
                     Notify.partner(context, theirs)
                 }
                 if (Statuses.isMatch(Store.mine(), theirs, day) && Store.firstMatchToday() && !Store.foreground) {

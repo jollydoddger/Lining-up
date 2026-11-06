@@ -1,7 +1,7 @@
 # Lining up 🌙
 
 A tiny Android app for two. Each evening at 8pm a popup asks ✅ or ❌, then
-🍆 or 👅. Your answer shows on your partner's phone with the time you tapped
+👅, 🍆 or both. Your answer shows on your partner's phone with the time you tapped
 it, and the day resets at 2am.
 
 ## Install
@@ -22,7 +22,11 @@ That's it. Pick a face for yourself under ⚙️.
 ## Using it
 
 - ✅ / ❌ — tap to answer, tap again to take it back.
-- 🍆 / 👅 — appear once you've said ✅.
+- 👅 / 🍆 — appear once you've said ✅. Each switches on and off by itself,
+  so pick either, both or neither.
+- 📝 — a note for the day, folded away until tapped. Your partner sees a 📝
+  on your card and taps it to read; the notification only ever says 📝,
+  never the words. Up to 500 characters, gone at 2am with the rest.
 - Top card — your partner's answer and the time they tapped it. ⏳ means
   nothing yet today.
 - 💞 — both of you said ✅. Both phones get a quiet notification the first

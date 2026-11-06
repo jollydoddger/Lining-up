@@ -33,23 +33,24 @@ class CoreTest {
 
     @Test fun wireRoundTrips() {
         for (s in listOf(
-            Status("me", "🦊", "2026-11-06", true, Choice.TONGUE, 123L),
-            Status("me", "🦊", "2026-11-06", true, null, 124L),
-            Status("me", "🐻", "2026-11-06", false, null, 125L),
-            Status("me", "🐻", "2026-11-06", null, null, 126L),
+            Status("me", "🦊", "2026-11-06", true, setOf(Choice.TONGUE), 123L),
+            Status("me", "🦊", "2026-11-06", true, setOf(Choice.TONGUE, Choice.EGGPLANT), 123L, 130L, "later? 😏"),
+            Status("me", "🦊", "2026-11-06", true, emptySet(), 124L),
+            Status("me", "🐻", "2026-11-06", false, emptySet(), 125L, 125L, "tired\tline\nbreak"),
+            Status("me", "🐻", "2026-11-06", null, emptySet(), 126L, 140L, "just a note"),
         )) assertEquals(s, Status.parse(s.wire()))
     }
 
     @Test fun parseRefusesNonsense() {
         assertNull(Status.parse(null))
         assertNull(Status.parse("hello"))
-        assertNull(Status.parse("v2\ta\tb\tc\t1\t-\t1"))
+        assertNull(Status.parse("v3\ta\tb\tc\t1\t-\t1"))
         assertNull(Status.parse("v1\ta\t🦊\t2026-11-06\t7\t-\t1"))
     }
 
     @Test fun aRefusalCarriesNoChoice() {
         val s = Status.parse("v1\ta\t🦊\t2026-11-06\t0\tEGGPLANT\t1")!!
-        assertNull(s.what)
+        assertTrue(s.what.isEmpty())
         assertEquals("❌", s.emojis)
     }
 
@@ -91,10 +92,10 @@ class CoreTest {
     @Test fun partnerIsTheNewestTapFromSomebodyElseToday() {
         val day = "2026-11-06"
         val all = listOf(
-            Status("me", "🦊", day, true, null, 50),
-            Status("them", "🐻", day, false, null, 10),
-            Status("them", "🐻", day, true, Choice.EGGPLANT, 30),
-            Status("them", "🐻", "2026-11-05", true, null, 99),
+            Status("me", "🦊", day, true, emptySet(), 50),
+            Status("them", "🐻", day, false, emptySet(), 10),
+            Status("them", "🐻", day, true, setOf(Choice.EGGPLANT), 30),
+            Status("them", "🐻", "2026-11-05", true, emptySet(), 99),
         )
         assertEquals(30L, Statuses.partner(all, "me", day)!!.at)
         assertEquals(50L, Statuses.mine(all, "me", day)!!.at)
@@ -104,17 +105,17 @@ class CoreTest {
     @Test fun takingItBackHidesIt() {
         val day = "2026-11-06"
         val all = listOf(
-            Status("them", "🐻", day, true, null, 10),
-            Status("them", "🐻", day, null, null, 20),
+            Status("them", "🐻", day, true, emptySet(), 10),
+            Status("them", "🐻", day, null, emptySet(), 20),
         )
         assertEquals("", Statuses.partner(all, "me", day)!!.emojis)
     }
 
     @Test fun matchNeedsBothTicksToday() {
         val d = "2026-11-06"
-        val yes = Status("a", "", d, true, null, 1)
-        val yes2 = Status("b", "", d, true, Choice.TONGUE, 2)
-        val no = Status("b", "", d, false, null, 2)
+        val yes = Status("a", "", d, true, emptySet(), 1)
+        val yes2 = Status("b", "", d, true, setOf(Choice.TONGUE), 2)
+        val no = Status("b", "", d, false, emptySet(), 2)
         assertTrue(Statuses.isMatch(yes, yes2, d))
         assertFalse(Statuses.isMatch(yes, no, d))
         assertFalse(Statuses.isMatch(yes, null, d))
@@ -123,11 +124,40 @@ class CoreTest {
 
     @Test fun republishOnlyTodaysAndOnlyWhenStale() {
         val d = "2026-11-06"
-        val s = Status("a", "", d, true, null, 0)
+        val s = Status("a", "", d, true, emptySet(), 0)
         val h = 60 * 60 * 1000L
         assertFalse(Statuses.shouldRepublish(s, d, lastPublishedAt = 0, nowMs = h))
         assertTrue(Statuses.shouldRepublish(s, d, lastPublishedAt = 0, nowMs = 3 * h))
         assertFalse(Statuses.shouldRepublish(s, "2026-11-07", 0, 9 * h))
         assertFalse(Statuses.shouldRepublish(null, d, 0, 9 * h))
+    }
+
+    @Test fun theFirstBuildsMessagesStillRead() {
+        val s = Status.parse("v1\tthem\t🐻\t2026-11-06\t1\tEGGPLANT\t77")!!
+        assertEquals(setOf(Choice.EGGPLANT), s.what)
+        assertEquals(77L, s.edited)
+        assertEquals("", s.note)
+    }
+
+    @Test fun tongueComesFirstAndBothShow() {
+        val s = Status("a", "", "d", true, setOf(Choice.EGGPLANT, Choice.TONGUE), 1)
+        assertEquals("✅👅🍆", s.emojis)
+        assertEquals("TONGUE,EGGPLANT", Choice.wire(s.what))
+    }
+
+    @Test fun aNoteEditedLaterWinsEvenWithTheSameTapTime() {
+        val day = "2026-11-06"
+        val all = listOf(
+            Status("them", "🐻", day, true, emptySet(), 10, 10, ""),
+            Status("them", "🐻", day, true, emptySet(), 10, 25, "📝 hi"),
+        )
+        val p = Statuses.partner(all, "me", day)!!
+        assertEquals("📝 hi", p.note)
+        assertEquals(10L, p.at)
+    }
+
+    @Test fun aNoteOnItsOwnIsWorthShowing() {
+        assertTrue(Status("a", "", "d", null, emptySet(), 1, 1, "hi").shown)
+        assertFalse(Status("a", "", "d", null, emptySet(), 1, 1, " ").shown)
     }
 }

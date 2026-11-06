@@ -83,7 +83,7 @@ object Store {
     fun setAvatar(a: String) {
         prefs.edit().putString("avatar", a).apply()
         // Resend so the partner's screen shows the new face too.
-        mine()?.let { prefs.edit().putString("mine", it.copy(avatar = a).wire()).putBoolean("dirty", true).apply() }
+        mine()?.let { save(it.copy(avatar = a, edited = System.currentTimeMillis())) }
         refresh()
     }
 
@@ -94,8 +94,25 @@ object Store {
     }
 
     /** The one way an answer is made, from the screen or from the popup. */
-    fun answer(ok: Boolean?, what: Choice?) {
-        val s = Status(me, avatar, today(), ok, if (ok == true) what else null, System.currentTimeMillis())
+    fun answer(ok: Boolean?, what: Set<Choice>) {
+        val now = System.currentTimeMillis()
+        val s = Status(
+            me, avatar, today(), ok, if (ok == true) what else emptySet(), now, now,
+            mine()?.note ?: "", // a change of answer keeps today's note
+        )
+        save(s)
+    }
+
+    /** Today's note. Keeps the answer and the time it was given. */
+    fun setNote(note: String) {
+        val now = System.currentTimeMillis()
+        val text = note.trim().take(Status.NOTE_MAX)
+        val s = mine()?.copy(avatar = avatar, note = text, edited = now)
+            ?: Status(me, avatar, today(), null, emptySet(), now, now, text)
+        save(s)
+    }
+
+    private fun save(s: Status) {
         prefs.edit().putString("mine", s.wire()).putBoolean("dirty", true).commit()
         refresh()
     }

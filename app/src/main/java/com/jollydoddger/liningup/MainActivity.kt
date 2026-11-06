@@ -164,7 +164,7 @@ private fun Root() {
     }
 }
 
-private fun answer(context: Context, ok: Boolean?, what: Choice?) {
+private fun answer(context: Context, ok: Boolean?, what: Set<Choice>) {
     Store.answer(ok, what)
     Notify.clearPrompt(context)
     Sync.soon(context)
@@ -174,7 +174,7 @@ private fun answer(context: Context, ok: Boolean?, what: Choice?) {
 private fun MainScreen(snap: Snapshot, context: Context, openSettings: () -> Unit) {
     val mine = snap.mine
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -189,9 +189,7 @@ private fun MainScreen(snap: Snapshot, context: Context, openSettings: () -> Uni
         Spacer(Modifier.height(8.dp))
         PartnerCard(snap.theirs, snap.match)
 
-        Spacer(Modifier.weight(1f))
-        Heart(snap.match)
-        Spacer(Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().height(110.dp), contentAlignment = Alignment.Center) { Heart(snap.match) }
 
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(36.dp)).background(Glass).padding(vertical = 28.dp),
@@ -199,10 +197,10 @@ private fun MainScreen(snap: Snapshot, context: Context, openSettings: () -> Uni
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 EmojiButton("✅", mine?.ok == true, 124.dp) {
-                    answer(context, if (mine?.ok == true) null else true, null)
+                    answer(context, if (mine?.ok == true) null else true, emptySet())
                 }
                 EmojiButton("❌", mine?.ok == false, 124.dp) {
-                    answer(context, if (mine?.ok == false) null else false, null)
+                    answer(context, if (mine?.ok == false) null else false, emptySet())
                 }
             }
             AnimatedVisibility(
@@ -210,10 +208,12 @@ private fun MainScreen(snap: Snapshot, context: Context, openSettings: () -> Uni
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
             ) {
+                // Each one switches on and off by itself: either, both, or neither.
                 Row(Modifier.padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                    val picked = mine?.what.orEmpty()
                     for (c in Choice.entries) {
-                        EmojiButton(c.emoji, mine?.what == c, 104.dp) {
-                            answer(context, true, if (mine?.what == c) null else c)
+                        EmojiButton(c.emoji, c in picked, 104.dp) {
+                            answer(context, true, if (c in picked) picked - c else picked + c)
                         }
                     }
                 }
@@ -223,19 +223,69 @@ private fun MainScreen(snap: Snapshot, context: Context, openSettings: () -> Uni
                 Text(snap.avatar, fontSize = 18.sp)
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    mine?.let { Days.clock(it.at) } ?: "—",
+                    mine?.takeIf { it.ok != null }?.let { Days.clock(it.at) } ?: "—",
                     color = Faint, fontSize = 14.sp, fontFamily = FontFamily.Monospace,
                 )
                 if (snap.pending && mine != null) Text("  ⏳", fontSize = 12.sp, modifier = Modifier.alpha(0.6f))
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        MyNote(mine?.note.orEmpty(), context)
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+/**
+ * Today's note, folded away behind 📝. It opens only when tapped, so a phone
+ * left on the table shows the emoji and nothing written.
+ */
+@Composable
+private fun MyNote(saved: String, context: Context) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    var text by rememberSaveable(saved) { mutableStateOf(saved) }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Glass),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable { open = !open; text = saved }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Text("📝", fontSize = 28.sp, modifier = Modifier.alpha(if (saved.isBlank()) 0.55f else 1f))
+            if (saved.isNotBlank() && !open) Text("  •", color = Rose, fontSize = 20.sp)
+        }
+        AnimatedVisibility(visible = open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.take(Status.NOTE_MAX) },
+                    minLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Rose),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SmallEmoji("🗑️") { text = "" }
+                    Spacer(Modifier.weight(1f))
+                    SmallEmoji("✖️") { text = saved; open = false }
+                    SmallEmoji("✔️") {
+                        Store.setNote(text)
+                        Sync.soon(context)
+                        open = false
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun PartnerCard(theirs: Status?, match: Boolean) {
     val glow by animateFloatAsState(if (match) 1f else 0f, tween(600), label = "glow")
+    // Their note stays shut until tapped, and shuts again when they change it.
+    var noteOpen by remember(theirs?.note) { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -250,7 +300,7 @@ private fun PartnerCard(theirs: Status?, match: Boolean) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AnimatedContent(
-            targetState = theirs?.takeIf { it.ok != null },
+            targetState = theirs?.takeIf { it.shown },
             transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith fadeOut() },
             label = "theirs",
         ) { t ->
@@ -258,14 +308,28 @@ private fun PartnerCard(theirs: Status?, match: Boolean) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(theirs?.avatar?.ifBlank { null } ?: "💭", fontSize = 44.sp)
                     Spacer(Modifier.size(14.dp))
-                    if (t == null) Text("⏳", fontSize = 64.sp, modifier = Modifier.alpha(0.35f))
-                    else Text(t.emojis, fontSize = 72.sp)
+                    if (t == null || t.ok == null) Text("⏳", fontSize = 64.sp, modifier = Modifier.alpha(0.35f))
+                    else Text(t.emojis, fontSize = 64.sp)
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    t?.let { Days.clock(it.at) } ?: "—",
+                    t?.takeIf { it.ok != null }?.let { Days.clock(it.at) } ?: "—",
                     color = Faint, fontSize = 18.sp, fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        val note = theirs?.note.orEmpty()
+        if (note.isNotBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "📝", fontSize = 28.sp,
+                modifier = Modifier.clip(CircleShape).clickable { noteOpen = !noteOpen }.padding(8.dp),
+            )
+            AnimatedVisibility(visible = noteOpen, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Text(
+                    note, color = Color.White, fontSize = 17.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
                 )
             }
         }
